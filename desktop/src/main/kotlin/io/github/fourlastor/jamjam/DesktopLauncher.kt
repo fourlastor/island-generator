@@ -11,5 +11,5 @@ fun main() {
         setWindowedMode(width.toInt(), height.toInt())
         setForegroundFPS(60)
     }
-    Lwjgl3Application(JamGame(), config)
+    Lwjgl3Application(Game(), config)
 }

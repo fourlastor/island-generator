@@ -24,7 +24,5 @@ application {
 dependencies {
     api(project(":core"))
     api("com.badlogicgames.gdx:gdx-platform:${libs.versions.gdx.get()}:natives-desktop")
-    api("com.badlogicgames.gdx:gdx-box2d-platform:${libs.versions.gdx.get()}:natives-desktop")
     api(libs.gdxBackendLwjgl3)
-    api(libs.controllersDesktop)
 }
