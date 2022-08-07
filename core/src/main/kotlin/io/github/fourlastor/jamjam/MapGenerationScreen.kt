@@ -5,19 +5,29 @@ import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.utils.viewport.FitViewport
 import ktx.app.KtxScreen
+import ktx.graphics.use
 import squidpony.squidgrid.gui.gdx.DefaultResources
 import squidpony.squidgrid.gui.gdx.FilterBatch
 import squidpony.squidgrid.gui.gdx.SColor
 import squidpony.squidgrid.gui.gdx.SparseLayers
 import squidpony.squidgrid.gui.gdx.SquidInput
 import squidpony.squidgrid.gui.gdx.SquidMouse
-import squidpony.squidmath.ClassicNoise
+import squidpony.squidmath.Noise.Noise2D
+import squidpony.squidmath.Noise.Scaled2D
 import squidpony.squidmath.RNG
+import squidpony.squidmath.ValueNoise
 
-class DungeonDemoScreen : KtxScreen {
+class MapGenerationScreen : KtxScreen {
+
+    /**
+     * Press:
+     * R to reload the map (right now disabled as the seed is fixed
+     * Arrows to move around
+     */
 
     /** Some classes in SquidLib need access to a batch to render certain things, so it's a good idea to have one. */
     private val batch = FilterBatch()
@@ -53,14 +63,26 @@ class DungeonDemoScreen : KtxScreen {
 
     private val input: SquidInput = manageInput()
 
-    private val bgColor: Color = SColor.DB_INK
+    private val bgColor: Color = SColor.BLACK_DYE
 
     //Here we make sure our Stage, which holds any text-based grids we make, uses our Batch.
     private val stage: Stage =
         Stage(FitViewport((GRID_WIDTH * CELL_WIDTH).toFloat(), ((GRID_HEIGHT) * CELL_HEIGHT).toFloat()), batch)
             .apply { addActor(display) }
 
-    private val noise = ClassicNoise(rng.nextLong())
+    private val noise = ChunkedNoiseGenerator(
+        initialSeed = 124L,
+        noise = Scaled2D(ValueNoise(), 0.1),
+        chunkSize = CHUNK_SIZE
+    )
+
+    private val map: Array<Array<Color>> = Array(GRID_WIDTH) { Array(GRID_HEIGHT) { Color() } }
+
+    private val mountainColor = SColor.THOUSAND_YEAR_OLD_BROWN
+    private val hillColor = SColor.AURORA_CRICKET
+    private val grassColor = SColor.KELLY_GREEN
+    private val waterColor = SColor.BONDI_BLUE
+    private val font = BitmapFont()
 
     init {
         rebuild()
@@ -109,8 +131,24 @@ class DungeonDemoScreen : KtxScreen {
         Gdx.input.inputProcessor = null
     }
 
+    private var chunkX = 0
+    private var chunkY = 0
+
     private fun rebuild() {
-        noise.seed = rng.nextLong()
+        println("Building $chunkX, $chunkY...")
+        forX { x ->
+            forY { y ->
+                val value = noise.noiseAt(chunkX, chunkY, x, y)
+                val color = when {
+                    value > 0.8 -> mountainColor
+                    value > 0.7 -> hillColor
+                    value > 0.5 -> grassColor
+                    value >= 0 -> waterColor
+                    else -> Color.YELLOW
+                }
+                map[x][y].set(color)
+            }
+        }
     }
 
     private fun manageInput() = SquidInput(
@@ -136,8 +174,29 @@ class DungeonDemoScreen : KtxScreen {
                 'R', 'r' -> {
                     rebuild()
                 }
+
+                SquidInput.UP_ARROW -> {
+                    chunkY -= 1
+                    rebuild()
+                }
+
+                SquidInput.DOWN_ARROW -> {
+                    chunkY += 1
+                    rebuild()
+                }
+
+                SquidInput.LEFT_ARROW -> {
+                    chunkX -= 1
+                    rebuild()
+                }
+
+                SquidInput.RIGHT_ARROW -> {
+                    chunkX += 1
+                    rebuild()
+                }
             }
-        },  //The second parameter passed to a SquidInput can be a SquidMouse, which takes mouse or touchscreen
+        },
+        //The second parameter passed to a SquidInput can be a SquidMouse, which takes mouse or touchscreen
         //input and converts it to grid coordinates (here, a cell is 12 wide and 24 tall, so clicking at the
         // pixel position 15,51 will pass screenX as 1 (since if you divide 15 by 12 and round down you get 1),
         // and screenY as 2 (since 51 divided by 24 rounded down is 2)).
@@ -166,19 +225,27 @@ class DungeonDemoScreen : KtxScreen {
      * Draws the map, applies any highlighting for the path to the cursor, and then draws the player.
      */
     private fun drawMap() {
-        for (x in 0 until GRID_WIDTH) {
-            for (y in 0 until GRID_HEIGHT) {
-
-                val targetX = x.toDouble() / GRID_WIDTH
-                val targetY = y.toDouble() / GRID_HEIGHT
-                val value = noise.getNoise(targetX, targetY).toFloat()
+        forX { x ->
+            forY { y ->
                 display.put(
                     x,
                     y,
                     '#',
-                    Color(value, value, value, 1f)
+                    map[x][y]
                 )
             }
+        }
+    }
+
+    private inline fun forX(onX: (x: Int) -> Unit) {
+        for (x in 0 until GRID_WIDTH) {
+            onX(x)
+        }
+    }
+
+    private inline fun forY(onY: (y: Int) -> Unit) {
+        for (y in 0 until GRID_HEIGHT) {
+            onY(y)
         }
     }
 
@@ -197,6 +264,9 @@ class DungeonDemoScreen : KtxScreen {
         stage.viewport.apply()
         stage.draw()
         stage.act()
+        batch.use {
+            font.draw(it, "($chunkX, $chunkY)", 25f, 50f)
+        }
     }
 
     override fun resize(width: Int, height: Int) {
@@ -210,11 +280,13 @@ class DungeonDemoScreen : KtxScreen {
     }
 
     companion object {
-        /** In number of cells  */
-        const val GRID_WIDTH = 40
+        const val CHUNK_SIZE = 80
 
         /** In number of cells  */
-        const val GRID_HEIGHT = 40
+        const val GRID_WIDTH = CHUNK_SIZE
+
+        /** In number of cells  */
+        const val GRID_HEIGHT = CHUNK_SIZE
 
         /** The pixel width of a cell  */
         const val CELL_WIDTH = 16
@@ -223,4 +295,23 @@ class DungeonDemoScreen : KtxScreen {
         const val CELL_HEIGHT = 16
 
     }
+}
+
+
+class ChunkedNoiseGenerator(
+    initialSeed: Long,
+    private val noise: Noise2D,
+    private val chunkSize: Int,
+) {
+    private var seed = initialSeed
+
+    fun updateSeed(seed: Long) {
+        this.seed = seed
+    }
+
+    fun noiseAt(chunkX: Int, chunkY: Int, x: Int, y: Int) = (noise.getNoiseWithSeed(
+        (chunkX * chunkSize + x).toDouble(),
+        (chunkY * chunkSize + y).toDouble(),
+        seed,
+    ) + 1.0) / 2
 }
