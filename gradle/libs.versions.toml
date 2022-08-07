@@ -4,6 +4,7 @@ gdx = "1.10.0"
 gdxAi = "1.8.2"
 ktx = "1.10.0-rc2"
 serializationJson = "1.3.3"
+squidLib = "3.0.4"
 [libraries]
 artemis = { module = "net.onedaybeard.artemis:artemis-odb", version.ref = "artemis" }
 gdx = { module = "com.badlogicgames.gdx:gdx", version.ref = "gdx" }
@@ -15,3 +16,5 @@ ktxGraphics = { module = "io.github.libktx:ktx-graphics", version.ref = "ktx" }
 ktxMath = { module = "io.github.libktx:ktx-math", version.ref = "ktx" }
 ktxVis = { module = "io.github.libktx:ktx-vis", version.ref = "ktx" }
 serializationJson = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serializationJson" }
+squidLibCore = { module = "com.squidpony:squidlib-util", version.ref = "squidLib" }
+squidLib = { module = "com.squidpony:squidlib", version.ref = "squidLib" }

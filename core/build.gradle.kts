@@ -21,4 +21,6 @@ dependencies {
     api(libs.ktxGraphics)
     api(libs.ktxMath)
     api(libs.ktxVis)
+    api(libs.squidLibCore)
+    api(libs.squidLib)
 }

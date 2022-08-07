@@ -13,7 +13,7 @@ class Game : KtxGame<Screen>() {
         VisUI.load(VisUI.SkinScale.X2)
         Scene2DSkin.defaultSkin = VisUI.getSkin()
 
-        addScreen(MenuScreen())
-        setScreen<MenuScreen>()
+        addScreen(DungeonDemoScreen())
+        setScreen<DungeonDemoScreen>()
     }
 }
