@@ -5,23 +5,39 @@ import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.Pixmap
+import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
+import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.scenes.scene2d.Stage
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.IntMap
+import com.badlogic.gdx.utils.Scaling
 import com.badlogic.gdx.utils.viewport.ExtendViewport
+import com.badlogic.gdx.utils.viewport.ScalingViewport
+import ktx.actors.onChange
 import ktx.app.KtxScreen
+import ktx.app.clearScreen
 import ktx.graphics.use
+import ktx.scene2d.actors
+import ktx.scene2d.container
+import ktx.scene2d.vis.visLabel
+import ktx.scene2d.vis.visScrollPane
+import ktx.scene2d.vis.visTable
+import ktx.scene2d.vis.visTextButton
+import ktx.scene2d.vis.visTextField
 import squidpony.squidgrid.gui.gdx.DefaultResources
 import squidpony.squidgrid.gui.gdx.FilterBatch
 import squidpony.squidgrid.gui.gdx.SColor
 import squidpony.squidgrid.gui.gdx.SparseLayers
 import squidpony.squidgrid.gui.gdx.SquidInput
 import squidpony.squidgrid.gui.gdx.SquidMouse
+import squidpony.squidmath.CrossHash
 import squidpony.squidmath.Noise.Noise2D
 import squidpony.squidmath.Noise.Scaled2D
 import squidpony.squidmath.OpenSimplex2F
-import squidpony.squidmath.RNG
 import squidpony.squidmath.ValueNoise
+
 
 class MapGenerationScreen : KtxScreen {
 
@@ -35,7 +51,6 @@ class MapGenerationScreen : KtxScreen {
     private val batch = FilterBatch()
 
     /** gotta have a random number generator. We can seed an RNG with any [Long] we want, or even a [String]. */
-    private val rng = RNG("SquidLib!")
 
     private val tcf = DefaultResources.getCrispSlabFont()
 
@@ -74,22 +89,93 @@ class MapGenerationScreen : KtxScreen {
 
     private val chunked = ChunkedCoordinate(CHUNK_SIZE, MAP_WIDTH)
 
+    private val initialSeed = CrossHash.hash64("map-generation")
+
     private val altitudeNoise = ChunkedNoiseGenerator(
-        initialSeed = 124L,
+        initialSeed = initialSeed,
         noise = Scaled2D(ValueNoise(), 0.1),
     )
 
     private val temperatureNoise = ChunkedNoiseGenerator(
-        initialSeed = 15464L,
+        initialSeed = initialSeed,
         noise = Scaled2D(OpenSimplex2F(), 0.01),
     )
 
     private val map: IntMap<Color> = IntMap(GRID_HEIGHT * GRID_WIDTH * 9)
     private val font = BitmapFont()
 
+    private val uiStage = Stage(
+        ScalingViewport(
+            Scaling.stretch,
+            Gdx.graphics.width.toFloat() - Gdx.graphics.height.toFloat(),
+            Gdx.graphics.height.toFloat(),
+        )
+    ).apply {
+        isDebugAll = false
+    }
+
+    init {
+        uiStage.actors {
+            visScrollPane {
+                setFillParent(true)
+
+                visTable(defaultSpacing = true) {
+                    defaults()
+                        .top()
+                    visLabel("Temperature")
+                    row()
+                    visLabel("Min: ")
+                    val minTempField = visTextField("0.0")
+                    visLabel("Max:")
+                    val maxTempField = visTextField("150.0")
+                    row()
+                    visLabel("Humidity")
+                    row()
+                    visLabel("Min:")
+                    val minHumidityField = visTextField("0.0")
+                    visLabel("max:")
+                    val maxHumidityField = visTextField("1.0")
+                    row()
+                    visLabel("Altitude")
+                    row()
+                    visLabel("Min:")
+                    val minAltitudeField = visTextField("-5")
+                    visLabel("max:")
+                    val maxAltitudeField = visTextField("200")
+                    row()
+                    visLabel("Seed:")
+                    val seedField = visTextField("daniele")
+
+                    row()
+                    visTextButton("Update") {
+                        onChange {
+                            val seedString = seedField.text ?: return@onChange
+                            val seed = CrossHash.hash64(seedString)
+                            altitudeNoise.updateSeed(seed)
+                            temperatureNoise.updateSeed(seed)
+                            rebuild()
+//                        inputSystem.updateConfig {
+//                            runSpeed = (runSpeedField.text.toFloatOrNull() ?: runSpeed)
+//                            jumpSpeed = (jumpSpeedField.text.toFloatOrNull() ?: jumpSpeed)
+//                            jumpMaxHeight = (jumpHeightField.text.toFloatOrNull() ?: jumpMaxHeight)
+//                            graceTime = (graceTimeField.text.toFloatOrNull() ?: graceTime)
+//                        }
+                        }
+                    }
+                    pack()
+                }
+            }
+            container {
+                pad(8f)
+                pack()
+            }
+        }
+    }
+
+
     override fun show() {
         rebuild()
-        Gdx.input.inputProcessor = InputMultiplexer(stage, input, object : InputAdapter() {
+        Gdx.input.inputProcessor = InputMultiplexer(stage, uiStage, input, object : InputAdapter() {
 
             private var x = -1
             private var y = -1
@@ -286,7 +372,7 @@ class MapGenerationScreen : KtxScreen {
 
     override fun render(delta: Float) {
         // standard clear the background routine for libGDX
-        Gdx.gl.glClearColor(bgColor.r, bgColor.g, bgColor.b, 1.0f)
+        clearScreen(bgColor.r, bgColor.g, bgColor.b, 1.0f, false)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
 
         // need to display the map every frame, since we clear the screen to avoid artifacts.
@@ -299,19 +385,37 @@ class MapGenerationScreen : KtxScreen {
         stage.viewport.apply()
         stage.draw()
         stage.act()
-        batch.use {
+        uiStage.viewport.apply()
+        uiStage.act()
+        uiStage.draw()
+        batch.use(uiStage.viewport.camera) {
             font.draw(it, "($localChunkX, $localChunkY)", 25f, 50f)
         }
     }
 
     override fun resize(width: Int, height: Int) {
         super.resize(width, height)
+
+
         //very important to have the mouse behave correctly if the user fullscreens or resizes the game!
         input.mouse.reinitialize(
             width.toFloat() / GRID_WIDTH, height.toFloat() / (GRID_HEIGHT),
             GRID_WIDTH.toFloat(), GRID_HEIGHT.toFloat(), 0, 0
         )
-        stage.viewport.update(width, height, true)
+
+        stage.viewport.setScreenBounds(
+            0,
+            0,
+            height,
+            height,
+        )
+
+        uiStage.viewport.setScreenBounds(
+            height,
+            0,
+            width - height,
+            height,
+        )
     }
 
     companion object {
