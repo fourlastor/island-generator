@@ -6,25 +6,15 @@ import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.scenes.scene2d.Stage
-import com.badlogic.gdx.utils.viewport.FillViewport
+import com.badlogic.gdx.utils.viewport.FitViewport
 import ktx.app.KtxScreen
-import squidpony.squidai.DijkstraMap
 import squidpony.squidgrid.gui.gdx.DefaultResources
 import squidpony.squidgrid.gui.gdx.FilterBatch
-import squidpony.squidgrid.gui.gdx.MapUtility
 import squidpony.squidgrid.gui.gdx.SColor
 import squidpony.squidgrid.gui.gdx.SparseLayers
 import squidpony.squidgrid.gui.gdx.SquidInput
 import squidpony.squidgrid.gui.gdx.SquidMouse
-import squidpony.squidgrid.gui.gdx.TextCellFactory
-import squidpony.squidgrid.mapping.DungeonUtility
-import squidpony.squidgrid.mapping.FlowingCaveGenerator
-import squidpony.squidgrid.mapping.SectionDungeonGenerator
-import squidpony.squidgrid.mapping.SerpentMapGenerator
-import squidpony.squidgrid.mapping.styled.TilesetType
-import squidpony.squidmath.Coord
-import squidpony.squidmath.GreasedRegion
-import squidpony.squidmath.OrderedMap
+import squidpony.squidmath.ClassicNoise
 import squidpony.squidmath.RNG
 
 class DungeonDemoScreen : KtxScreen {
@@ -67,24 +57,10 @@ class DungeonDemoScreen : KtxScreen {
 
     //Here we make sure our Stage, which holds any text-based grids we make, uses our Batch.
     private val stage: Stage =
-        Stage(FillViewport((GRID_WIDTH * CELL_WIDTH).toFloat(), ((GRID_HEIGHT) * CELL_HEIGHT).toFloat()), batch)
+        Stage(FitViewport((GRID_WIDTH * CELL_WIDTH).toFloat(), ((GRID_HEIGHT) * CELL_HEIGHT).toFloat()), batch)
             .apply { addActor(display) }
-    private val playerToCursor = DijkstraMap(DefaultResources.getGuiRandom())
-    private val initialCursor = Coord.get(-1, -1)
-    private val costs: OrderedMap<Char, Double> = OrderedMap<Char, Double>().apply {
-        set('£', DijkstraMap.WALL)
-        set('¢', 4.0)
-        set('£', 2.0)
-    }
 
-    private lateinit var player: Coord
-    private var playerGlyph: TextCellFactory.Glyph? = null
-    private lateinit var decoDungeon: Array<CharArray>
-    private lateinit var bareDungeon: Array<CharArray>
-    private lateinit var lineDungeon: Array<CharArray>
-    private lateinit var colorIndices: Array<FloatArray>
-    private lateinit var bgColorIndices: Array<FloatArray>
-    private lateinit var res: Array<DoubleArray>
+    private val noise = ClassicNoise(rng.nextLong())
 
     init {
         rebuild()
@@ -109,8 +85,8 @@ class DungeonDemoScreen : KtxScreen {
                 val translateX = (x - screenX).toFloat() / 2
                 val translateY = (screenY - y).toFloat() / 2
                 stage.viewport.camera.translate(
-                    translateX.toFloat(),
-                    translateY.toFloat(),
+                    translateX,
+                    translateY,
                     0f
                 )
 
@@ -134,89 +110,7 @@ class DungeonDemoScreen : KtxScreen {
     }
 
     private fun rebuild() {
-        val serpent = SerpentMapGenerator(GRID_WIDTH, GRID_HEIGHT, rng, rng.nextDouble(0.15))
-        serpent.putWalledBoxRoomCarvers(rng.between(5, 10))
-        serpent.putWalledRoundRoomCarvers(rng.between(2, 5))
-        serpent.putRoundRoomCarvers(rng.between(1, 4))
-        serpent.putCaveCarvers(rng.between(8, 15))
-        val flowCaves = FlowingCaveGenerator(GRID_WIDTH, GRID_HEIGHT, TilesetType.DEFAULT_DUNGEON, rng)
-        val dungeonGen = SectionDungeonGenerator(GRID_WIDTH, GRID_HEIGHT, rng)
-        dungeonGen.addWater(SectionDungeonGenerator.CAVE, rng.between(10, 30))
-        dungeonGen.addWater(SectionDungeonGenerator.ROOM, rng.between(3, 11))
-        dungeonGen.addDoors(rng.between(10, 25), false)
-        dungeonGen.addGrass(SectionDungeonGenerator.CAVE, rng.between(5, 25))
-        dungeonGen.addGrass(SectionDungeonGenerator.ROOM, rng.between(0, 5))
-        dungeonGen.addBoulders(SectionDungeonGenerator.ALL, rng.between(3, 11))
-        if (rng.nextInt(3) == 0) dungeonGen.addLake(
-            rng.between(5, 30),
-            '£',
-            '¢'
-        ) else if (rng.nextInt(5) < 3) dungeonGen.addLake(
-            rng.between(8, 35)
-        ) else dungeonGen.addLake(0)
-        when (rng.nextInt(18)) {
-            0, 1, 2, 11, 12 -> decoDungeon =
-                DungeonUtility.closeDoors(dungeonGen.generate(serpent.generate(), serpent.environment))
-
-            3, 4, 5, 13 -> decoDungeon = DungeonUtility.closeDoors(dungeonGen.generate(TilesetType.DEFAULT_DUNGEON))
-            6, 7 -> decoDungeon =
-                DungeonUtility.closeDoors(dungeonGen.generate(TilesetType.ROUND_ROOMS_DIAGONAL_CORRIDORS))
-
-            8 -> decoDungeon = DungeonUtility.closeDoors(dungeonGen.generate(TilesetType.REFERENCE_CAVES))
-            9 -> decoDungeon = DungeonUtility.closeDoors(dungeonGen.generate(TilesetType.ROOMS_LIMIT_CONNECTIVITY))
-            10 -> decoDungeon = DungeonUtility.closeDoors(dungeonGen.generate(TilesetType.CORNER_CAVES))
-            14, 15, 16 -> decoDungeon =
-                DungeonUtility.closeDoors(dungeonGen.generate(flowCaves.generate(), flowCaves.getEnvironment()))
-
-            else -> decoDungeon =
-                DungeonUtility.closeDoors(dungeonGen.generate(flowCaves.generate(), flowCaves.getEnvironment()))
-        }
-
-        //There are lots of options for dungeon generation in SquidLib; you can pass a TilesetType enum to generate()
-        //as shown on the following lines to change the style of dungeon generated from ruined areas, which are made
-        //when no argument is passed to generate or when TilesetType.DEFAULT_DUNGEON is, to caves or other styles.
-        //decoDungeon = dungeonGen.generate(TilesetType.REFERENCE_CAVES); // generate caves
-//        decoDungeon = dungeonGen.generate(TilesetType.ROUND_ROOMS_DIAGONAL_CORRIDORS); // generate large round rooms
-
-        //getBareDungeon provides the simplest representation of the generated dungeon -- '#' for walls, '.' for floors.
-        bareDungeon = dungeonGen.bareDungeon
-        //When we draw, we may want to use a nicer representation of walls. DungeonUtility has lots of useful methods
-        //for modifying char[][] dungeon grids, and this one takes each '#' and replaces it with a box-drawing character.
-        lineDungeon = DungeonUtility.hashesToLines(decoDungeon, true)
-        // it's more efficient to get random floors from a packed set containing only (compressed) floor positions.
-        // CoordPacker is a deep and involved class, but when other classes request packed data, you usually just need
-        // to give them a short array representing a region, as produced by CoordPacker.pack().
-        val placement = GreasedRegion(bareDungeon, '.')
-        //Coord is the type we use as a general 2D point, usually in a dungeon.
-        //Because we know dungeons won't be huge, Coord is optimized for x and y values between -3 and 255, inclusive.
-        //player is, here, just a Coord that stores his position. In a real game, you would probably have a class for
-        //creatures, and possibly a subclass for the player.
-        player = placement.retract8way().singleRandom(rng)
-        val player = player
-        if (!player.isWithin(GRID_WIDTH, GRID_HEIGHT)) rebuild()
-        playerGlyph?.also { display.removeGlyph(it) }
-        playerGlyph = display.glyph('@', SColor.RED_INCENSE, player.x, player.y)
-        res = DungeonUtility.generateResistances(decoDungeon)
-
-
-        //DijkstraMap is the pathfinding swiss-army knife we use here to find a path to the latest cursor position.
-        playerToCursor.initialize(decoDungeon)
-        playerToCursor.initializeCost(DungeonUtility.generateCostMap(decoDungeon, costs, 1.0))
-        // DungeonUtility provides various ways to get default colors or other information from a dungeon char 2D array.
-        colorIndices = MapUtility.generateDefaultColorsFloat(
-            decoDungeon,
-            '£',
-            SColor.CW_PALE_GOLD.toFloatBits(),
-            '¢',
-            SColor.CW_BRIGHT_APRICOT.toFloatBits()
-        )
-        bgColorIndices = MapUtility.generateDefaultBGColorsFloat(
-            decoDungeon,
-            '£',
-            SColor.CW_ORANGE.toFloatBits(),
-            '¢',
-            SColor.CW_RICH_APRICOT.toFloatBits()
-        )
+        noise.seed = rng.nextLong()
     }
 
     private fun manageInput() = SquidInput(
@@ -274,12 +168,15 @@ class DungeonDemoScreen : KtxScreen {
     private fun drawMap() {
         for (x in 0 until GRID_WIDTH) {
             for (y in 0 until GRID_HEIGHT) {
+
+                val targetX = x.toDouble() / GRID_WIDTH
+                val targetY = y.toDouble() / GRID_HEIGHT
+                val value = noise.getNoise(targetX, targetY).toFloat()
                 display.put(
                     x,
                     y,
-                    lineDungeon[x][y],
-                    colorIndices[x][y],
-                    bgColorIndices[x][y]
+                    '#',
+                    Color(value, value, value, 1f)
                 )
             }
         }
@@ -314,10 +211,10 @@ class DungeonDemoScreen : KtxScreen {
 
     companion object {
         /** In number of cells  */
-        const val GRID_WIDTH = 75
+        const val GRID_WIDTH = 40
 
         /** In number of cells  */
-        const val GRID_HEIGHT = 25
+        const val GRID_HEIGHT = 40
 
         /** The pixel width of a cell  */
         const val CELL_WIDTH = 16
