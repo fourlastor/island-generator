@@ -7,7 +7,8 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.scenes.scene2d.Stage
-import com.badlogic.gdx.utils.viewport.FitViewport
+import com.badlogic.gdx.utils.IntMap
+import com.badlogic.gdx.utils.viewport.ExtendViewport
 import ktx.app.KtxScreen
 import ktx.graphics.use
 import squidpony.squidgrid.gui.gdx.DefaultResources
@@ -18,6 +19,7 @@ import squidpony.squidgrid.gui.gdx.SquidInput
 import squidpony.squidgrid.gui.gdx.SquidMouse
 import squidpony.squidmath.Noise.Noise2D
 import squidpony.squidmath.Noise.Scaled2D
+import squidpony.squidmath.OpenSimplex2F
 import squidpony.squidmath.RNG
 import squidpony.squidmath.ValueNoise
 
@@ -50,7 +52,7 @@ class MapGenerationScreen : KtxScreen {
      * the font will try to load Inconsolata-LGC-Custom as a bitmap font with a distance field effect.
      */
     private val display =
-        SparseLayers(GRID_WIDTH, GRID_HEIGHT, CELL_WIDTH.toFloat(), CELL_HEIGHT.toFloat(), tcf).apply {
+        SparseLayers(GRID_WIDTH * 3, GRID_HEIGHT * 3, CELL_WIDTH.toFloat(), CELL_HEIGHT.toFloat(), tcf).apply {
             /* this makes animations very fast, which is good for multi-cell movement but bad for attack animations. */
 //        display.setAnimationDuration(0.125f);
 //        display.setLightingColor(SColor.PAPAYA_WHIP);
@@ -67,29 +69,26 @@ class MapGenerationScreen : KtxScreen {
 
     //Here we make sure our Stage, which holds any text-based grids we make, uses our Batch.
     private val stage: Stage =
-        Stage(FitViewport((GRID_WIDTH * CELL_WIDTH).toFloat(), ((GRID_HEIGHT) * CELL_HEIGHT).toFloat()), batch)
+        Stage(ExtendViewport((GRID_WIDTH * CELL_WIDTH).toFloat(), ((GRID_HEIGHT) * CELL_HEIGHT).toFloat()), batch)
             .apply { addActor(display) }
 
-    private val noise = ChunkedNoiseGenerator(
+    private val chunked = ChunkedCoordinate(CHUNK_SIZE, MAP_WIDTH)
+
+    private val altitudeNoise = ChunkedNoiseGenerator(
         initialSeed = 124L,
         noise = Scaled2D(ValueNoise(), 0.1),
-        chunkSize = CHUNK_SIZE
     )
 
-    private val map: Array<Array<Color>> = Array(GRID_WIDTH) { Array(GRID_HEIGHT) { Color() } }
+    private val temperatureNoise = ChunkedNoiseGenerator(
+        initialSeed = 15464L,
+        noise = Scaled2D(OpenSimplex2F(), 0.01),
+    )
 
-    private val mountainColor = SColor.THOUSAND_YEAR_OLD_BROWN
-    private val hillColor = SColor.AURORA_CRICKET
-    private val grassColor = SColor.KELLY_GREEN
-    private val waterColor = SColor.BONDI_BLUE
+    private val map: IntMap<Color> = IntMap(GRID_HEIGHT * GRID_WIDTH * 9)
     private val font = BitmapFont()
 
-    init {
-        rebuild()
-    }
-
     override fun show() {
-        super.show()
+        rebuild()
         Gdx.input.inputProcessor = InputMultiplexer(stage, input, object : InputAdapter() {
 
             private var x = -1
@@ -131,23 +130,32 @@ class MapGenerationScreen : KtxScreen {
         Gdx.input.inputProcessor = null
     }
 
-    private var chunkX = 0
-    private var chunkY = 0
+    private var localChunkX = 1
+    private var localChunkY = 1
+
+    private val mountain = SColor.SLATE_GRAY
+    private val hill = SColor.AURORA_CRICKET
+    private val grass = SColor.KELLY_GREEN
+    private val forest = SColor.GREEN_BAMBOO
+    private val deepWater = SColor.DARK_BLUE_LAPIS_LAZULI
+    private val water = SColor.BONDI_BLUE
+    private val sand = SColor.TAN
 
     private fun rebuild() {
-        println("Building $chunkX, $chunkY...")
-        forX { x ->
-            forY { y ->
-                val value = noise.noiseAt(chunkX, chunkY, x, y)
-                val color = when {
-                    value > 0.8 -> mountainColor
-                    value > 0.7 -> hillColor
-                    value > 0.5 -> grassColor
-                    value >= 0 -> waterColor
-                    else -> Color.YELLOW
-                }
-                map[x][y].set(color)
+        println("Building $localChunkX, $localChunkY...")
+        onMap { x, y, coordId ->
+            val altitude = altitudeNoise.noiseAt(x, y)
+            val temperature = temperatureNoise.noiseAt(x, y)
+            val color = when {
+                altitude < 0.1 -> deepWater
+                altitude < 0.5 -> water
+                altitude < 0.8 -> sand
+                altitude < 1.0 -> grass
+                altitude < 1.5 -> if (temperature > 0.6) grass else forest
+                altitude < 1.7 -> hill
+                else -> mountain
             }
+            map.put(coordId, color)
         }
     }
 
@@ -176,22 +184,22 @@ class MapGenerationScreen : KtxScreen {
                 }
 
                 SquidInput.UP_ARROW -> {
-                    chunkY -= 1
+                    localChunkY -= 1
                     rebuild()
                 }
 
                 SquidInput.DOWN_ARROW -> {
-                    chunkY += 1
+                    localChunkY += 1
                     rebuild()
                 }
 
                 SquidInput.LEFT_ARROW -> {
-                    chunkX -= 1
+                    localChunkX -= 1
                     rebuild()
                 }
 
                 SquidInput.RIGHT_ARROW -> {
-                    chunkX += 1
+                    localChunkX += 1
                     rebuild()
                 }
             }
@@ -225,15 +233,42 @@ class MapGenerationScreen : KtxScreen {
      * Draws the map, applies any highlighting for the path to the cursor, and then draws the player.
      */
     private fun drawMap() {
-        forX { x ->
-            forY { y ->
-                display.put(
-                    x,
-                    y,
-                    '#',
-                    map[x][y]
-                )
+        onMap { x, y, coordId ->
+            display.put(
+                x - ((localChunkX - 1) * CHUNK_SIZE),
+                y - ((localChunkY - 1) * CHUNK_SIZE),
+                '#',
+                map.get(coordId),
+            )
+        }
+    }
+
+
+    private inline fun onMap(onCoordinate: (x: Int, y: Int, coordId: Int) -> Unit) {
+        chunksX { chunkX ->
+            chunksY { chunkY ->
+                forX { x ->
+                    forY { y ->
+                        onCoordinate(
+                            chunked.x(chunkX, x),
+                            chunked.y(chunkY, y),
+                            chunked.coordId(chunkX, chunkY, x, y)
+                        )
+                    }
+                }
             }
+        }
+    }
+
+    private inline fun chunksX(onX: (chunkX: Int) -> Unit) {
+        for (currentChunkX in localChunkX - 1..localChunkX + 1) {
+            onX(currentChunkX)
+        }
+    }
+
+    private inline fun chunksY(onY: (chunkY: Int) -> Unit) {
+        for (currentChunkY in localChunkY - 1..localChunkY + 1) {
+            onY(currentChunkY)
         }
     }
 
@@ -265,7 +300,7 @@ class MapGenerationScreen : KtxScreen {
         stage.draw()
         stage.act()
         batch.use {
-            font.draw(it, "($chunkX, $chunkY)", 25f, 50f)
+            font.draw(it, "($localChunkX, $localChunkY)", 25f, 50f)
         }
     }
 
@@ -280,28 +315,39 @@ class MapGenerationScreen : KtxScreen {
     }
 
     companion object {
-        const val CHUNK_SIZE = 80
+        const val CHUNK_SIZE = 40
 
         /** In number of cells  */
         const val GRID_WIDTH = CHUNK_SIZE
+
+        const val MAP_WIDTH = GRID_WIDTH * 3
 
         /** In number of cells  */
         const val GRID_HEIGHT = CHUNK_SIZE
 
         /** The pixel width of a cell  */
-        const val CELL_WIDTH = 16
+        const val CELL_WIDTH = 10
 
         /** The pixel height of a cell  */
-        const val CELL_HEIGHT = 16
+        const val CELL_HEIGHT = 10
 
     }
+}
+
+class ChunkedCoordinate(
+    private val chunkSize: Int,
+    private val mapWidth: Int,
+) {
+    fun x(chunkX: Int, x: Int) = chunkX * chunkSize + x
+    fun y(chunkY: Int, y: Int) = chunkY * chunkSize + y
+
+    fun coordId(chunkX: Int, chunkY: Int, x: Int, y: Int) = x(chunkX, x) + y(chunkY, y) * mapWidth
 }
 
 
 class ChunkedNoiseGenerator(
     initialSeed: Long,
     private val noise: Noise2D,
-    private val chunkSize: Int,
 ) {
     private var seed = initialSeed
 
@@ -309,9 +355,9 @@ class ChunkedNoiseGenerator(
         this.seed = seed
     }
 
-    fun noiseAt(chunkX: Int, chunkY: Int, x: Int, y: Int) = (noise.getNoiseWithSeed(
-        (chunkX * chunkSize + x).toDouble(),
-        (chunkY * chunkSize + y).toDouble(),
+    fun noiseAt(actualX: Int, actualY: Int) = (noise.getNoiseWithSeed(
+        actualX.toDouble(),
+        actualY.toDouble(),
         seed,
-    ) + 1.0) / 2
+    ) + 1.0)
 }
