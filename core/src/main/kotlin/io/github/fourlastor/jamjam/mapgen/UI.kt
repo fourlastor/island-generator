@@ -3,6 +3,7 @@ package io.github.fourlastor.jamjam.mapgen
 import com.badlogic.gdx.InputProcessor
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.utils.Scaling
+import com.badlogic.gdx.utils.viewport.FitViewport
 import com.badlogic.gdx.utils.viewport.ScalingViewport
 import com.badlogic.gdx.utils.viewport.Viewport
 import ktx.actors.onChange
@@ -15,16 +16,9 @@ import ktx.scene2d.vis.visTextButton
 import ktx.scene2d.vis.visTextField
 
 class UI(
-    worldWidth: Float,
-    worldHeight: Float,
     private val onUpdate: (seed: String) -> Unit,
-    private val stage: Stage = Stage(
-        ScalingViewport(
-            Scaling.stretch,
-            worldWidth,
-            worldHeight,
-        )
-    ),
+    viewport: Viewport,
+    private val stage: Stage = Stage(viewport),
 ) : InputProcessor by stage {
     val viewport: Viewport
         get() = stage.viewport
@@ -82,8 +76,8 @@ class UI(
 
     fun update() {
         stage.viewport.apply()
-        stage.act()
         stage.draw()
+        stage.act()
     }
 
 }

@@ -1,6 +1,7 @@
 package io.github.fourlastor.jamjam.mapgen
 
 import squidpony.squidmath.CrossHash
+import squidpony.squidmath.FastNoise
 import squidpony.squidmath.Noise
 import squidpony.squidmath.OpenSimplex2F
 import squidpony.squidmath.ValueNoise
@@ -11,7 +12,7 @@ class Noises(
 ) {
     private var seed: Long = CrossHash.hash64(initialSeed)
 
-    private val altitudeNoise = Noise.Scaled2D(ValueNoise(), 0.1 * scale)
+    private val altitudeNoise = Noise.Scaled2D(FastNoise())
 
     private val temperatureNoise = Noise.Scaled2D(OpenSimplex2F(), 0.01 * scale)
 

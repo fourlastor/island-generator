@@ -1,6 +1,6 @@
 package io.github.fourlastor.jamjam.mapgen
 
-class ChunkedCoordinate(
+class ChunkedCoordinateCalculator(
     private val chunkSize: Int,
     private val mapWidth: Int,
 ) {
